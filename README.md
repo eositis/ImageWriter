@@ -6,10 +6,12 @@ This is a tool to handle Apple ImageWriter printer control language.  Given one 
 
 In fact, almost none of the code was written by me - the ImageWriter interpreter and graphics plotting was taken wholesale from the [GSport IIGS emulator](https://github.com/david-schmidt/gsport/blob/main/src/imagewriter.cpp), in turn borrowed from KEGS and DOSBox.  My contribution was simply a wrapper program to make it work from the CLI, and Makefile that "works on my machine" :)
 
+The idea for this came from [a post by Colin Leroy-Mira](https://www.colino.net/wordpress/en/print-from-an-apple-ii-to-any-modern-printer/) but since I lack physical hardware, it's an all-software solution.
+
 Because the original code requires SDL 1.2 for plotting graphics, so does this version.  Sorry!
 
 ## Usage
-`./imagewriter [-d dpi] [-p pageSize] [-b bannerSize] [-o outputType] [-m multiPageOutput] input.txt [input2.txt ...]`
+`./imagewriter [-d dpi] [-p pageSize] [-b bannerSize] [-o outputType] [-m] input.txt [input2.txt ...]`
 
 * DPI is arbitrary, but note that the print head in the ImageWriter could only achieve something like 144 DPI, so multiples of this are probably good choices.
 * Paper Sizes, zero-based, one of these:
@@ -31,7 +33,7 @@ Because the original code requires SDL 1.2 for plotting graphics, so does this v
 	"ps" - grayscale postscript file
 	anything else - BMP (default) - this is all I tested sorry
 ```
-* multiPage0utput - for PS / ColorPS, output each page in a one multi-page doc, instead of as separate per-page .ps.  (Default 1)
+* multiPageOutput - for PS / ColorPS, output each page in a one multi-page doc, instead of as separate per-page .ps.  (Default 0)
 
 You may specify multiple input.txt files.  To create input files, you can use something like [AppleWin](https://github.com/AppleWin/AppleWin) with the "printer dump filename" to log printer commands to a file, then feed them here.
 
