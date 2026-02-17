@@ -52,13 +52,21 @@
 
 #include "imagewriter.h"
 #include <math.h>
+#include <stdlib.h>
+#include <string.h>
 #include "support.h"
+#if !defined(WIN32)
+#include <unistd.h>
+#endif
 
 //#include "png.h"
 //#pragma comment( lib, "libpng.lib" )
 //#pragma comment (lib, "zdll.lib" ) 
 
 static Imagewriter* defaultImagewriter = NULL;
+static void (*s_status_callback)(const char *msg) = NULL;
+static const char *s_printer_name = NULL;
+static int s_output_page_num = 0;
 
 static FILE *textPrinterFile = NULL; 
 #ifdef WIN32
@@ -296,7 +304,7 @@ void Imagewriter::resetPrinter()
 		densy = 2;
 		densz = 3;
 		charTables[0] = 0; // Italics
-		charTables[1] = charTables[2] = charTables[3] = 437;
+		charTables[1] = charTables[2] = charTables[3] = CODEPAGE_APPLE2;
 		multipoint = false;
 		multiPointSize = 0.0;
 		multicpi = 0.0;
@@ -352,9 +360,11 @@ void Imagewriter::selectCodepage(Bit16u cp)
 	case 437:
 		mapToUse = (Bit16u*)&cp437Map;
 		break;
+	case CODEPAGE_APPLE2:
+		mapToUse = (Bit16u*)&apple2Map;
+		break;
 	default:
-		//LOG(LOG_MISC,LOG_WARN)("Unsupported codepage %i. Using CP437 instead.", cp);
-		mapToUse = (Bit16u*)&cp437Map;
+		mapToUse = (Bit16u*)&apple2Map;
 	}
 
 	for (int i=0; i<256; i++)
@@ -1669,6 +1679,12 @@ SDL_Flip(screen);
 SDL_Delay(2000);
 SDL_FreeSurface(image);*/
 	char fname[200];
+	s_output_page_num++;
+	if (s_status_callback) {
+		char msg[64];
+		snprintf(msg, sizeof(msg), "Outputting page %d", s_output_page_num);
+		s_status_callback(msg);
+	}
 	if (strcasecmp(output, "printer") == 0)
 	{
 #if defined (WIN32)
@@ -1807,7 +1823,32 @@ SDL_FreeSurface(image);*/
 		DeleteObject(bitmap);
 		DeleteDC(memHDC);
 #else
-		//LOG_MSG("PRINTER: Direct printing not supported under this OS");
+		/* macOS/Linux: send to printer queue via lp or lpr (CUPS) */
+		{
+			char tmp_path[] = "/tmp/imagewriter_XXXXXX";
+			int fd = mkstemp(tmp_path);
+			if (fd >= 0) {
+				close(fd);
+				if (SDL_SaveBMP(page, tmp_path) == 0) {
+					char cmd[512];
+					int ret;
+					if (s_printer_name && s_printer_name[0])
+						snprintf(cmd, sizeof(cmd), "lp -d \"%s\" \"%s\" 2>/dev/null || lpr -P \"%s\" \"%s\" 2>/dev/null", s_printer_name, tmp_path, s_printer_name, tmp_path);
+					else
+						snprintf(cmd, sizeof(cmd), "lp \"%s\" 2>/dev/null || lpr \"%s\" 2>/dev/null", tmp_path, tmp_path);
+					ret = system(cmd);
+					if (ret != 0)
+						printf("Print command failed (exit %d). Temp file kept: %s\n", ret, tmp_path);
+					else
+						unlink(tmp_path);
+				} else {
+					printf("Failed to save temp BMP for printing. Temp file: %s\n", tmp_path);
+					unlink(tmp_path);
+				}
+			} else {
+				printf("Failed to create temp file for printing\n");
+			}
+		}
 #endif
 	}
 #ifdef C_LIBPNG
@@ -2270,6 +2311,7 @@ Bit8u Imagewriter::getPixel(Bit32u num) {
 extern "C" void imagewriter_init(int pdpi, int ppaper, int banner, char* poutput, bool mpage)
 {
 	if (defaultImagewriter != NULL) return; //if Imagewriter on this port is initialized, reuse it
+	s_output_page_num = 0;
 	defaultImagewriter = new Imagewriter(pdpi, ppaper, banner, poutput, mpage);
 }
 extern "C" void imagewriter_loop(Bit8u pchar)
@@ -2287,4 +2329,14 @@ extern "C" void imagewriter_feed()
 {
 	if(defaultImagewriter == NULL) return;
 	defaultImagewriter->formFeed();
+}
+
+extern "C" void imagewriter_set_status_callback(void (*cb)(const char *msg))
+{
+	s_status_callback = cb;
+}
+
+extern "C" void imagewriter_set_printer_name(const char *name)
+{
+	s_printer_name = name;
 }

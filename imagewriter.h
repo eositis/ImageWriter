@@ -309,6 +309,8 @@ void imagewriter_init(int pdpi, int ppaper, int banner, char* poutput, bool mpag
 void imagewriter_loop(Bit8u pchar);
 void imagewriter_close();
 void imagewriter_feed();
+void imagewriter_set_status_callback(void (*cb)(const char *msg));
+void imagewriter_set_printer_name(const char *name);
 #ifdef __cplusplus
 }
 #endif
