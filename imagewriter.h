@@ -311,6 +311,7 @@ void imagewriter_close();
 void imagewriter_feed();
 void imagewriter_set_status_callback(void (*cb)(const char *msg));
 void imagewriter_set_printer_name(const char *name);
+void imagewriter_set_output_prefix(const char *prefix);
 #ifdef __cplusplus
 }
 #endif

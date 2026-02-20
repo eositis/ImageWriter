@@ -1,5 +1,10 @@
 #include "imagewriter.h"
 #include "serial.h"
+#if defined(BUILD_NUMBER)
+#include "build_number.h"
+#else
+#define BUILD_NUMBER 0
+#endif
 
 #include <errno.h>
 #include <fcntl.h>
@@ -235,6 +240,22 @@ static int list_printers(char names[][128], int max_names)
 
 static int run_interactive(struct interactive_config *cfg);
 
+/* Set timestamped output prefix for this run (e.g. imagewriter_20260217_224816) */
+static void set_output_timestamp(void)
+{
+	time_t now = time(NULL);
+	struct tm *tm = localtime(&now);
+	char prefix[64];
+	if (tm) {
+		snprintf(prefix, sizeof(prefix), "imagewriter_%04d%02d%02d_%02d%02d%02d",
+			tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday,
+			tm->tm_hour, tm->tm_min, tm->tm_sec);
+		imagewriter_set_output_prefix(prefix);
+	} else {
+		imagewriter_set_output_prefix("");
+	}
+}
+
 /* Run serial mode (shared by CLI and interactive) */
 static int run_serial(const char *port_path, int baud, long dpi, int paper, long banner,
 	const char *output, int multipage, int debug, const char *printer, int verbose)
@@ -252,6 +273,7 @@ static int run_serial(const char *port_path, int baud, long dpi, int paper, long
 
 	if (verbose)
 		printf("  [Initializing virtual ImageWriter]\n");
+	set_output_timestamp();
 	imagewriter_init((int)dpi, paper, (int)banner, (char*)output, multipage);
 
 #ifdef SIGINT
@@ -270,8 +292,19 @@ static int run_serial(const char *port_path, int baud, long dpi, int paper, long
 				tm->tm_hour, tm->tm_min, tm->tm_sec);
 			sessionFile = fopen(sessionPath, "wb");
 		}
-		if (sessionFile && verbose)
-			printf("  [Debug: dumping to %s]\n", sessionPath);
+		if (sessionFile) {
+			/* Write header: "IWDB" magic + 4-byte build number (LE) */
+			unsigned char hdr[8] = { 'I','W','D','B', 0, 0, 0, 0 };
+			unsigned n = (unsigned)BUILD_NUMBER;
+			hdr[4] = (unsigned char)(n & 0xFF);
+			hdr[5] = (unsigned char)((n >> 8) & 0xFF);
+			hdr[6] = (unsigned char)((n >> 16) & 0xFF);
+			hdr[7] = (unsigned char)((n >> 24) & 0xFF);
+			if (fwrite(hdr, 1, 8, sessionFile) != 8)
+				perror("Session header write");
+			if (verbose)
+				printf("  [Debug: dumping to %s (build %u)]\n", sessionPath, n);
+		}
 	}
 
 	if (verbose)
@@ -292,8 +325,32 @@ static int run_serial(const char *port_path, int baud, long dpi, int paper, long
 			idle_count = 0;
 			if (sessionFile && fwrite(buf, 1, (size_t)n, sessionFile) != (size_t)n)
 				perror("Session file write");
-			for (int i = 0; i < n; i++)
-				imagewriter_loop(buf[i]);
+			for (int i = 0; i < n; i++) {
+				unsigned char b = buf[i];
+				/* Apple II: map line-ending codes to CR */
+				if (b == 0x8D || b == 0xFD || b == 0xA9) {
+					imagewriter_loop(0x0D);
+					continue;
+				}
+				/* Apple II IIc: 0xE0 often appears as digit 0 in LIST output */
+				if (b == 0xE0) {
+					imagewriter_loop(0x30);
+					continue;
+				}
+				/* IIc LIST: 0xB2 0xB9 sequence observed for PRINT keyword */
+				if (b == 0xB2 && i + 1 < n && buf[i + 1] == 0xB9) {
+					for (const char *p = "PRINT "; *p; p++)
+						imagewriter_loop((unsigned char)*p);
+					i++;
+					continue;
+				}
+				/* Applesoft tokens for LIST output */
+				if (b == 0xBA) { for (const char *p = "PRINT "; *p; p++) imagewriter_loop((unsigned char)*p); continue; }
+				if (b == 0xAB) { for (const char *p = "GOTO "; *p; p++) imagewriter_loop((unsigned char)*p); continue; }
+				/* ImageWriter Technical Reference: 8th bit is always 1 for data, 0 for control codes.
+				 * Strip high bit only when set to get 7-bit ASCII; pass control codes through. */
+				imagewriter_loop((b & 0x80) ? (b & 0x7F) : b);
+			}
 		} else if (n < 0) {
 			perror("Serial read error");
 			break;
@@ -321,6 +378,32 @@ static int run_serial(const char *port_path, int baud, long dpi, int paper, long
 	return EXIT_SUCCESS;
 }
 
+/* Apple II preprocessing: same logic as serial loop. Call when replaying session dumps. */
+static void apple2_preprocess_feed(const unsigned char *buf, int n)
+{
+	for (int i = 0; i < n; i++) {
+		unsigned char b = buf[i];
+		if (b == 0x8D || b == 0xFD || b == 0xA9) {
+			imagewriter_loop(0x0D);
+			continue;
+		}
+		if (b == 0xE0) {
+			imagewriter_loop(0x30);
+			continue;
+		}
+		if (b == 0xB2 && i + 1 < n && buf[i + 1] == 0xB9) {
+			for (const char *p = "PRINT "; *p; p++)
+				imagewriter_loop((unsigned char)*p);
+			i++;
+			continue;
+		}
+		if (b == 0xBA) { for (const char *p = "PRINT "; *p; p++) imagewriter_loop((unsigned char)*p); continue; }
+		if (b == 0xAB) { for (const char *p = "GOTO "; *p; p++) imagewriter_loop((unsigned char)*p); continue; }
+		/* ImageWriter Technical Reference: 8th bit always 1 for data, 0 for control */
+		imagewriter_loop((b & 0x80) ? (b & 0x7F) : b);
+	}
+}
+
 /* Run file mode (shared by CLI and interactive) */
 static int run_file_mode(char *files[], int num_files, long dpi, int paper, long banner,
 	const char *output, int multipage, const char *printer, int verbose)
@@ -335,6 +418,7 @@ static int run_file_mode(char *files[], int num_files, long dpi, int paper, long
 
 	if (verbose)
 		printf("  [Initializing virtual ImageWriter]\n");
+	set_output_timestamp();
 	imagewriter_init((int)dpi, paper, (int)banner, (char*)output, multipage);
 
 	for (int i = 0; i < num_files; i++) {
@@ -349,10 +433,34 @@ static int run_file_mode(char *files[], int num_files, long dpi, int paper, long
 			imagewriter_close();
 			return EXIT_FAILURE;
 		}
+		/* Skip ImageWriter session header if present ("IWDB" + 4-byte build) */
+		int is_session = 0;
+		{
+			unsigned char magic[4];
+			if (fread(magic, 1, 4, file) == 4 &&
+			    magic[0] == 'I' && magic[1] == 'W' && magic[2] == 'D' && magic[3] == 'B') {
+				is_session = 1;
+				if (fseek(file, 4, SEEK_CUR) != 0)  /* skip build number */
+					perror("Seek in session file");
+			} else {
+				rewind(file);
+				/* Old session files (no header) have "session" in filename */
+				if (strstr(files[i], "session") != NULL)
+					is_session = 1;
+			}
+		}
 
-		int c;
-		while ((c = fgetc(file)) != -1)
-			imagewriter_loop(c);
+		if (is_session) {
+			/* Session dump: apply Apple II preprocessing (same as serial mode) */
+			unsigned char buf[8192];
+			size_t nr;
+			while ((nr = fread(buf, 1, sizeof(buf), file)) > 0)
+				apple2_preprocess_feed(buf, (int)nr);
+		} else {
+			int c;
+			while ((c = fgetc(file)) != -1)
+				imagewriter_loop(c);
+		}
 
 		if (!feof(file)) {
 			perror("Error reading file");

@@ -10,10 +10,10 @@ The `outputPage()` function handles output based on the `output` string (from `-
 
 | Output type | Windows | macOS/Linux | File location |
 |-------------|---------|-------------|---------------|
-| `bmp` | ✓ | ✓ | `./page1.bmp`, `./page2.bmp`, … |
-| `text` | ✓ | ✓ | `./printer.txt` |
-| `ps` | ✓ | ✓ | `./page1.ps` or `./doc1.ps` (multipage) |
-| `colorps` | ✓ | ✓ | `./page1.ps` or `./doc1.ps` (multipage) |
+| `bmp` | ✓ | ✓ | `./imagewriter_YYYYMMDD_HHMMSS_page1.bmp`, … |
+| `text` | ✓ | ✓ | `./imagewriter_YYYYMMDD_HHMMSS.txt` |
+| `ps` | ✓ | ✓ | `./imagewriter_YYYYMMDD_HHMMSS_page1.ps` or `_doc1.ps` (multipage) |
+| `colorps` | ✓ | ✓ | `./imagewriter_YYYYMMDD_HHMMSS_page1.ps` or `_doc1.ps` (multipage) |
 | `png` | ✓ (if C_LIBPNG) | ✓ | `./page1.png` |
 | **`printer`** | ✓ Win32 GDI | **No-op** | — |
 

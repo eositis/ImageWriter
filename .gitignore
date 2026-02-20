@@ -42,3 +42,5 @@
 
 imagewriter
 *.bmp
+.build_number
+build_number.h

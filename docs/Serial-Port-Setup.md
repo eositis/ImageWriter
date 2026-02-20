@@ -41,7 +41,7 @@ Available serial ports (ImageWriter-compatible):
 ./imagewriter -s /dev/cu.usbserial-A50285BI
 ```
 
-Output defaults to BMP files (`page1.bmp`, `page2.bmp`, …) in the current directory. Press **Ctrl+C** to stop; the current page will be ejected and saved.
+Output defaults to BMP files (`imagewriter_YYYYMMDD_HHMMSS_page1.bmp`, …) with a timestamp in the filename. Press **Ctrl+C** to stop; the current page will be ejected and saved.
 
 ### 3. Specify output format
 
@@ -127,6 +127,8 @@ Use `-D` to save a raw dump of all bytes received from the serial port to a time
 
 This creates `imagewriter_session_YYYYMMDD_HHMMSS.bin` in the current directory. The file can be replayed later with file mode: `./imagewriter -o bmp imagewriter_session_20260216_143022.bin`.
 
+**Session file format:** New session files include an 8-byte header (`IWDB` magic + 4-byte build number, little-endian) so you can confirm which build generated the dump. Use `xxd session.bin | head -1` to inspect: the first four bytes should be `49574442` (IWDB) followed by the build number. Replay automatically skips this header; older session files without the header still work.
+
 ## Command reference
 
 ```
@@ -163,6 +165,8 @@ List ports:   ./imagewriter -l
 - Confirm baud rates match on both sides
 - Check cable wiring (TX/RX, null-modem if needed)
 - Verify the Apple II printer driver is configured for the correct interface and speed
+- **Apple II 7+parity / ImageWriter convention**: Per the ImageWriter Technical Reference, when AppleSoft writes to the printer the 8th bit is always 1 for data and 0 for control codes. The emulator strips the high bit only when set (yielding 7-bit ASCII), passes control codes through unchanged, and maps Apple II line-ending codes (0x8D, 0xFD, 0xA9) to carriage return.
+- **Applesoft LIST**: Program listings send tokenized bytes; the emulator expands Applesoft BASIC tokens (PRINT, GOTO, etc.) to keywords. Tokens 0xB0–0xB9 (which could be inverse-video digits in line numbers) are not expanded to avoid corrupting line numbers.
 
 **Connection drops**
 

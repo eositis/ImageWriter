@@ -68,12 +68,9 @@ static void (*s_status_callback)(const char *msg) = NULL;
 static const char *s_printer_name = NULL;
 static int s_output_page_num = 0;
 
-static FILE *textPrinterFile = NULL; 
-#ifdef WIN32
-const char* const textPrinterFileName = ".\\printer.txt";
-#else 
-const char* const textPrinterFileName = "./printer.txt";
-#endif
+static char s_output_prefix[80] = "";
+static char s_text_output_path[256] = "";
+static FILE *textPrinterFile = NULL;
 
 #define PARAM16(I) (params[I+1]*256+params[I])
 #define PIXX ((Bitu)floor(curX*dpi+0.5))
@@ -86,7 +83,6 @@ const char* const textPrinterFileName = "./printer.txt";
 
 static Bitu printer_timout;
 static bool timeout_dirty;
-static const char* document_path;
 extern "C" char* g_imagewriter_fixed_font;
 extern "C" char* g_imagewriter_prop_font;
 extern "C" int iw_scc_write;
@@ -1274,7 +1270,20 @@ void Imagewriter::printChar(Bit8u ch)
 #endif // HAVE_SDL
 	if (strcasecmp(output, "text") == 0) {
 		if (!textPrinterFile) {
-			textPrinterFile = fopen(textPrinterFileName,"ab");
+			if (s_output_prefix[0]) {
+#ifdef WIN32
+				snprintf(s_text_output_path, sizeof(s_text_output_path), ".\\%s.txt", s_output_prefix);
+#else
+				snprintf(s_text_output_path, sizeof(s_text_output_path), "./%s.txt", s_output_prefix);
+#endif
+			} else {
+#ifdef WIN32
+				snprintf(s_text_output_path, sizeof(s_text_output_path), ".\\printer.txt");
+#else
+				snprintf(s_text_output_path, sizeof(s_text_output_path), "./printer.txt");
+#endif
+			}
+			textPrinterFile = fopen(s_text_output_path, "ab");
 		}
 		fprintf(textPrinterFile,"%c",ch);
 		fflush(textPrinterFile);
@@ -1625,29 +1634,28 @@ void Imagewriter::formFeed()
 #ifdef HAVE_SDL
 static void findNextName(char* front, char* ext, char* fname)
 {
-	document_path = "";
 	Bitu i = 1;
-	Bitu slen = strlen(document_path);
-	if(slen>(200-15)) {
-		fname[0]=0;
-		return;
-	}
 	FILE *test = NULL;
 	do
 	{
-		strcpy(fname, document_path);
-		printf(fname);
+		if (s_output_prefix[0]) {
 #ifdef WIN32
-		const char* const pathstring = ".\\%s%d%s";
-#else 
-		const char* const pathstring = "./%s%d%s";
+			snprintf(fname, 200, ".\\%s_%s%d%s", s_output_prefix, front, (int)i++, ext);
+#else
+			snprintf(fname, 200, "./%s_%s%d%s", s_output_prefix, front, (int)i++, ext);
 #endif
-		sprintf(fname+strlen(fname), pathstring, front,i++,ext);
+		} else {
+#ifdef WIN32
+			snprintf(fname, 200, ".\\%s%d%s", front, (int)i++, ext);
+#else
+			snprintf(fname, 200, "./%s%d%s", front, (int)i++, ext);
+#endif
+		}
 		test = fopen(fname, "rb");
 		if (test != NULL)
 			fclose(test);
 	}
-	while (test != NULL );
+	while (test != NULL);
 }
 
 void Imagewriter::outputPage() 
@@ -2339,4 +2347,14 @@ extern "C" void imagewriter_set_status_callback(void (*cb)(const char *msg))
 extern "C" void imagewriter_set_printer_name(const char *name)
 {
 	s_printer_name = name;
+}
+
+extern "C" void imagewriter_set_output_prefix(const char *prefix)
+{
+	if (prefix && prefix[0]) {
+		strncpy(s_output_prefix, prefix, sizeof(s_output_prefix) - 1);
+		s_output_prefix[sizeof(s_output_prefix) - 1] = '\0';
+	} else {
+		s_output_prefix[0] = '\0';
+	}
 }
